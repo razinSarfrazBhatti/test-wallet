@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"test-wallet/config"
 	"test-wallet/models"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -12,8 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
-
-const alchemyURL = "https://eth-sepolia.g.alchemy.com/v2/Njq9_Go2I8LiMVNyMPFjhd0IdR_lwlof"
 
 func CreateWallet() (*models.CreateWalletResponse, error) {
 	privateKey, err := crypto.GenerateKey()
@@ -30,7 +29,7 @@ func CreateWallet() (*models.CreateWalletResponse, error) {
 }
 
 func GetBalance(address string) (string, error) {
-	client, err := ethclient.Dial(alchemyURL)
+	client, err := ethclient.Dial(config.GetInfuraURL())
 	if err != nil {
 		return "", err
 	}
@@ -44,7 +43,7 @@ func GetBalance(address string) (string, error) {
 }
 
 func SendETH(request models.SendETHRequest) (string, error) {
-	client, err := ethclient.Dial(alchemyURL)
+	client, err := ethclient.Dial(config.GetInfuraURL())
 	if err != nil {
 		return "", err
 	}
