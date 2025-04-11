@@ -117,38 +117,63 @@ func SendETH(request models.SendETHRequest) (string, error) {
 	return signedTx.Hash().Hex(), nil
 }
 
+// SendERC20Token handles the logic for sending ERC20 tokens (e.g., USDC) from one address to another.
+// It builds and signs a token transfer transaction and broadcasts it to the Ethereum network.
 func SendERC20Token(request models.SendERC20Request) (string, error) {
+	// Connect to the Ethereum network using Infura
 	client, err := ethclient.Dial(config.GetInfuraURL())
 	if err != nil {
 		return "", err
 	}
 
+	// Convert the hex-encoded private key into an ECDSA private key object
 	privateKey, err := crypto.HexToECDSA(request.PrivateKey)
 	if err != nil {
 		return "", err
 	}
+
+	// Derive the sender's Ethereum address from the private key
 	account := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	// Convert the recipient's address from string to Ethereum address format
 	toAddress := common.HexToAddress(request.ToAddress)
+
+	// USDC token contract address on Ethereum (change if using different token or network)
 	usdcAddress := common.HexToAddress("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238")
 
+	// Convert the USD amount to USDC token amount in smallest units (USDC has 6 decimal places)
 	amountInUSD, _ := new(big.Float).SetString(request.AmountInUSD)
 	amountInWei := new(big.Int)
 	amountInWei, _ = amountInUSD.Mul(amountInUSD, big.NewFloat(1e6)).Int(amountInWei)
 
+	// Define the ERC20 ABI and pack the `transfer` method call with recipient and amount
 	erc20ABI, _ := abi.JSON(strings.NewReader(`[{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]`))
 	data, _ := erc20ABI.Pack("transfer", toAddress, amountInWei)
 
+	// Get the current nonce for the sender account
 	nonce, _ := client.PendingNonceAt(context.Background(), account)
+
+	// Suggest a gas price for the transaction
 	gasPrice, _ := client.SuggestGasPrice(context.Background())
-	gasLimit := uint64(100000)
+
+	// Set a gas limit for the token transfer transaction
+	gasLimit := uint64(100000) // typical for ERC20 token transfers
+
+	// Construct the raw transaction (value is 0 since we’re not sending ETH)
 	tx := types.NewTransaction(nonce, usdcAddress, big.NewInt(0), gasLimit, gasPrice, data)
 
+	// Get the chain ID (required for signing the transaction)
 	chainID, _ := client.NetworkID(context.Background())
+
+	// Sign the transaction using the sender's private key
 	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
 
+	// Send the signed transaction to the network
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		return "", err
 	}
+
+	// Return the transaction hash as confirmation
 	return signedTx.Hash().Hex(), nil
 }

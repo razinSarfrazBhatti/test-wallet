@@ -58,17 +58,25 @@ func SendETH(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"transaction_hash": txHash})
 }
 
+// SendERC20Token handles the HTTP request to send ERC20 tokens.
 func SendERC20Token(c *gin.Context) {
 	var request models.SendERC20Request
+
+	// Bind the incoming JSON payload to the request struct
 	if err := c.ShouldBindJSON(&request); err != nil {
+		// Return a 400 Bad Request response if the request is malformed
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
+	// Call the service layer to perform the token transfer
 	txHash, err := services.SendERC20Token(request)
 	if err != nil {
+		// Return a 500 Internal Server Error if the transfer fails
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send ERC20 token"})
 		return
 	}
+
+	// Return the transaction hash in a 200 OK response
 	c.JSON(http.StatusOK, gin.H{"transaction_hash": txHash})
 }
