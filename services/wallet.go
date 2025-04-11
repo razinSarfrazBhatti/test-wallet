@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"test-wallet/config"
 	"test-wallet/models"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -112,5 +114,41 @@ func SendETH(request models.SendETHRequest) (string, error) {
 	}
 
 	// Return the transaction hash as a hex string
+	return signedTx.Hash().Hex(), nil
+}
+
+func SendERC20Token(request models.SendERC20Request) (string, error) {
+	client, err := ethclient.Dial(config.GetInfuraURL())
+	if err != nil {
+		return "", err
+	}
+
+	privateKey, err := crypto.HexToECDSA(request.PrivateKey)
+	if err != nil {
+		return "", err
+	}
+	account := crypto.PubkeyToAddress(privateKey.PublicKey)
+	toAddress := common.HexToAddress(request.ToAddress)
+	usdcAddress := common.HexToAddress("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238")
+
+	amountInUSD, _ := new(big.Float).SetString(request.AmountInUSD)
+	amountInWei := new(big.Int)
+	amountInWei, _ = amountInUSD.Mul(amountInUSD, big.NewFloat(1e6)).Int(amountInWei)
+
+	erc20ABI, _ := abi.JSON(strings.NewReader(`[{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]`))
+	data, _ := erc20ABI.Pack("transfer", toAddress, amountInWei)
+
+	nonce, _ := client.PendingNonceAt(context.Background(), account)
+	gasPrice, _ := client.SuggestGasPrice(context.Background())
+	gasLimit := uint64(100000)
+	tx := types.NewTransaction(nonce, usdcAddress, big.NewInt(0), gasLimit, gasPrice, data)
+
+	chainID, _ := client.NetworkID(context.Background())
+	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
+
+	err = client.SendTransaction(context.Background(), signedTx)
+	if err != nil {
+		return "", err
+	}
 	return signedTx.Hash().Hex(), nil
 }

@@ -15,3 +15,10 @@ type SendETHRequest struct {
 	ToAddress   string `json:"to_address"`    // The recipient's Ethereum address
 	AmountInETH string `json:"amount_in_eth"` // The amount of ETH to send, represented as a string
 }
+
+type SendERC20Request struct {
+	FromAddress string `json:"from_address"`
+	PrivateKey  string `json:"private_key"`
+	ToAddress   string `json:"to_address"`
+	AmountInUSD string `json:"amount_in_usd"`
+}

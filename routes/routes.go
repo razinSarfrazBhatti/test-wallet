@@ -16,4 +16,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 	// Route to send ETH from one wallet to another
 	r.POST("/send-eth", handlers.SendETH)
+
+	// Route to send erc20 from one wallet to another
+	r.POST("/send-erc20", handlers.SendERC20Token)
 }
