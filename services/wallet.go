@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"os"
 	"strings"
 
-	"test-wallet/config"
 	"test-wallet/models"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -14,27 +14,56 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 )
 
 // CreateWallet generates a new Ethereum wallet with a private key and corresponding address.
 // It returns the wallet's address and private key.
 func CreateWallet() (*models.CreateWalletResponse, error) {
-	// Generate a new private key
-	privateKey, err := crypto.GenerateKey()
+	// Generate a random mnemonic (12-word by default)
+	mnemonic, err := hdwallet.NewMnemonic(128)
 	if err != nil {
-		return nil, err // Return error if private key generation fails
+		return nil, err
 	}
 
-	// Generate the Ethereum address from the public key
-	address := crypto.PubkeyToAddress(privateKey.PublicKey)
+	// Create the HD wallet from the mnemonic
+	wallet, err := hdwallet.NewFromMnemonic(mnemonic)
+	if err != nil {
+		return nil, err
+	}
 
-	// Convert the private key to a hexadecimal string
-	privateKeyHex := fmt.Sprintf("%x", privateKey.D)
+	// Derive a path (you can customize this for multiple accounts)
+	path := hdwallet.MustParseDerivationPath("m/44'/60'/0'/0/0")
+	account, err := wallet.Derive(path, false)
+	if err != nil {
+		return nil, err
+	}
 
-	// Return the wallet's address and private key
+	// 	1. m
+	//     The master node (root of the HD wallet tree).
+	// 2. 44' — Purpose
+	//     Follows BIP-44, a standard for multi-account hierarchical deterministic wallets.
+	//     The ' indicates it's a "hardened" key (more secure and isolated).
+	// 3. 60' — Coin Type
+	//     60 is the coin type for Ethereum, defined by SLIP-44.
+	// 4. 0' — Account
+	//     A unique account index — use 0 for the first wallet. You could use 1' or 2' for multiple user wallets.
+	// 5. 0 — Change
+	//     0 = external chain (for receiving).
+	//     1 = internal chain (used for change addresses, not typically used in Ethereum).
+	// 6. 0 — Address Index
+	//     Index of the address under the chain. You can increment this (0, 1, 2, …) to get more addresses.
+	// Get the private key
+	privateKey, err := wallet.PrivateKey(account)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the wallet info
 	return &models.CreateWalletResponse{
-		Address:    address.Hex(),
-		PrivateKey: privateKeyHex,
+		Mnemonic:   mnemonic,
+		Address:    account.Address.Hex(),
+		PrivateKey: fmt.Sprintf("%x", privateKey.D), //converts private key to hex
 	}, nil
 }
 
@@ -42,7 +71,7 @@ func CreateWallet() (*models.CreateWalletResponse, error) {
 // It returns the balance in ETH.
 func GetBalance(address string) (string, error) {
 	// Dial the Ethereum client using Infura URL from configuration
-	client, err := ethclient.Dial(config.GetInfuraURL())
+	client, err := ethclient.Dial(os.Getenv("INFURA_URL"))
 	if err != nil {
 		return "", err // Return error if the connection to Ethereum client fails
 	}
@@ -67,7 +96,7 @@ func GetBalance(address string) (string, error) {
 // It takes a request containing the sender's private key, recipient address, and amount to send.
 func SendETH(request models.SendETHRequest) (string, error) {
 	// Dial the Ethereum client using Infura URL from configuration
-	client, err := ethclient.Dial(config.GetInfuraURL())
+	client, err := ethclient.Dial(os.Getenv("INFURA_URL"))
 	if err != nil {
 		return "", err // Return error if the connection to Ethereum client fails
 	}
@@ -121,7 +150,7 @@ func SendETH(request models.SendETHRequest) (string, error) {
 // It builds and signs a token transfer transaction and broadcasts it to the Ethereum network.
 func SendERC20Token(request models.SendERC20Request) (string, error) {
 	// Connect to the Ethereum network using Infura
-	client, err := ethclient.Dial(config.GetInfuraURL())
+	client, err := ethclient.Dial(os.Getenv("INFURA_URL"))
 	if err != nil {
 		return "", err
 	}
@@ -139,7 +168,7 @@ func SendERC20Token(request models.SendERC20Request) (string, error) {
 	toAddress := common.HexToAddress(request.ToAddress)
 
 	// USDC token contract address on Ethereum (change if using different token or network)
-	usdcAddress := common.HexToAddress("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238")
+	usdcAddress := common.HexToAddress(os.Getenv("USDC_CONTRACT_ADDRESS"))
 
 	// Convert the USD amount to USDC token amount in smallest units (USDC has 6 decimal places)
 	amountInUSD, _ := new(big.Float).SetString(request.AmountInUSD)
@@ -176,4 +205,33 @@ func SendERC20Token(request models.SendERC20Request) (string, error) {
 
 	// Return the transaction hash as confirmation
 	return signedTx.Hash().Hex(), nil
+}
+
+// RecoverWalletFromMnemonic recovers a wallet using mnemonic and derivation path
+func RecoverWalletFromMnemonic(mnemonic, derivationPath string) (string, string, error) {
+	// Create a new wallet from the mnemonic
+	wallet, err := hdwallet.NewFromMnemonic(mnemonic)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create wallet: %w", err)
+	}
+
+	// Parse the derivation path (e.g. m/44'/60'/0'/0/0)
+	path := hdwallet.MustParseDerivationPath(derivationPath)
+
+	// Derive the account
+	account, err := wallet.Derive(path, false)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to derive account: %w", err)
+	}
+
+	// Get the private key
+	privKey, err := wallet.PrivateKey(account)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get private key: %w", err)
+	}
+
+	// Convert the private key to hex
+	privateKeyHex := fmt.Sprintf("0x%x", crypto.FromECDSA(privKey))
+
+	return account.Address.Hex(), privateKeyHex, nil
 }

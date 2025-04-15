@@ -80,3 +80,22 @@ func SendERC20Token(c *gin.Context) {
 	// Return the transaction hash in a 200 OK response
 	c.JSON(http.StatusOK, gin.H{"transaction_hash": txHash})
 }
+
+func RecoverWalletHandler(c *gin.Context) {
+	var req models.RecoverWalletRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	address, privateKey, err := services.RecoverWalletFromMnemonic(req.Mnemonic, req.DerivationPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"address":     address,
+		"private_key": privateKey,
+	})
+}
