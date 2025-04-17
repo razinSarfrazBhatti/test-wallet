@@ -6,6 +6,7 @@ import (
 
 type Wallet struct {
 	Id        string    `gorm:"type:char(36);primaryKey" json:"id"`
+	UserId    string    `gorm:"type:char(36);not null" json:"user_id"` // Must be the same type and unique
 	Address   string    `gorm:"type:text;not null" json:"address"`
 	Mnemonic  string    `gorm:"type:text;not null" json:"mnemonic"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`

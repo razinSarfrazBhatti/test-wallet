@@ -9,19 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CreateWallet handles the creation of a new Ethereum wallet.
-// It calls the service layer to generate a wallet and returns it in the response.
-func CreateWallet(c *gin.Context) {
-	wallet, err := services.CreateWallet()
-	if err != nil {
-		// Return 500 if wallet creation fails
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create wallet"})
-		return
-	}
-	// Return the newly created wallet
-	c.JSON(http.StatusOK, wallet)
-}
-
 // GetBalance handles fetching the ETH balance of a given address.
 // The address is extracted from the URL parameter.
 func GetBalance(c *gin.Context) {

@@ -13,6 +13,7 @@ import (
 
 var MySql *gorm.DB
 
+// InitDB initializes the database connection.
 func InitDB() {
 	// Example: user:password@tcp(localhost:3306)/dbname
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true",
@@ -31,16 +32,48 @@ func InitDB() {
 		log.Fatalf("failed to connect to DB: %v", err)
 	}
 
-	err = MySql.AutoMigrate(&models.Wallet{})
-	if err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
-	}
-
 	// Auto Migrate Tables
-	err = MySql.AutoMigrate(&models.Wallet{})
+	err = MySql.AutoMigrate(
+		&models.User{},
+		&models.Wallet{},
+	)
 	if err != nil {
 		log.Fatalf("AutoMigrate failed: %v", err)
 	}
 
 	log.Println("✅ Connected to MySQL!")
+}
+
+// BeginTransaction starts a new database transaction.
+func BeginTransaction() *gorm.DB {
+	tx := MySql.Begin()
+	if tx.Error != nil {
+		log.Printf("Failed to begin transaction: %v", tx.Error) // Log the error
+		return nil                                              // Return nil to indicate failure
+	}
+	return tx
+}
+
+// EndTransaction commits or rolls back a transaction.
+func EndTransaction(tx *gorm.DB, shouldCommit bool) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is nil") // Handle nil transaction
+	}
+	if shouldCommit {
+		if err := tx.Commit().Error; err != nil {
+			log.Printf("Failed to commit transaction: %v", err)
+			return err
+		}
+	} else {
+		if err := tx.Rollback().Error; err != nil {
+			log.Printf("Failed to rollback transaction: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+// GetDB returns the database connection.
+func GetDB() *gorm.DB {
+	return MySql
 }
