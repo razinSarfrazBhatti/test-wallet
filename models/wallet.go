@@ -1,5 +1,16 @@
 package models
 
+import (
+	"time"
+)
+
+type Wallet struct {
+	Id        string    `gorm:"type:char(36);primaryKey" json:"id"`
+	Address   string    `gorm:"type:text;not null" json:"address"`
+	Mnemonic  string    `gorm:"type:text;not null" json:"mnemonic"`
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+}
+
 // CreateWalletResponse defines the structure of the response when a new wallet is created.
 // It contains the wallet's address and the private key.
 type CreateWalletResponse struct {

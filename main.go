@@ -1,7 +1,8 @@
 package main
 
 import (
-	"log"                // Import the log package for logging errors
+	"log" // Import the log package for logging errors
+	"test-wallet/db"
 	"test-wallet/routes" // Import the routes package to register routes
 
 	"github.com/gin-gonic/gin" // Import the Gin web framework
@@ -16,6 +17,8 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
+	db.InitDB() // connect to MySQL
+
 	// Create a default Gin router
 	r := gin.Default()
 
@@ -24,4 +27,5 @@ func main() {
 
 	// Start the Gin server on port 8080
 	r.Run(":8080")
+
 }

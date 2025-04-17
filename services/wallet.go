@@ -6,7 +6,9 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"time"
 
+	"test-wallet/db"
 	"test-wallet/models"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -14,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/google/uuid"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 )
 
@@ -59,12 +62,25 @@ func CreateWallet() (*models.CreateWalletResponse, error) {
 		return nil, err
 	}
 
+	newWallet := &models.Wallet{
+		Id:        uuid.New().String(), // Use UUID for ID
+		Address:   account.Address.Hex(),
+		Mnemonic:  mnemonic,
+		CreatedAt: time.Now(), // GORM will handle this if omitted too
+	}
+
+	// 3. Save to DB
+	if err := db.MySql.Create(newWallet).Error; err != nil {
+		return nil, err
+	}
+
 	// Return the wallet info
 	return &models.CreateWalletResponse{
-		Mnemonic:   mnemonic,
-		Address:    account.Address.Hex(),
+		Mnemonic:   newWallet.Mnemonic,
+		Address:    newWallet.Address,
 		PrivateKey: fmt.Sprintf("%x", privateKey.D), //converts private key to hex
 	}, nil
+
 }
 
 // GetBalance retrieves the balance of an Ethereum wallet by address.
