@@ -15,6 +15,7 @@ func main() {
 	if err != nil {
 		// Log and stop execution if loading .env file fails
 		log.Fatal("Error loading .env file")
+
 	}
 
 	db.InitDB() // connect to MySQL

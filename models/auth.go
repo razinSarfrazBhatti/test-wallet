@@ -8,6 +8,11 @@ type RegisterUserRequest struct {
 	Pin         string `json:"pin"`
 }
 
+type LoginRequest struct {
+	PhoneNumber string `json:"phone_number" binding:"required"`
+	Pin         string `json:"pin" binding:"required"`
+}
+
 type User struct {
 	Id          string    `gorm:"type:char(36);primaryKey" json:"id"`
 	Name        string    `gorm:"type:text;not null" json:"name"`
