@@ -21,6 +21,6 @@ func RegisterWalletRoutes(r *gin.Engine) {
 		wallet.POST("/send-eth", walletHandler.SendETH)
 		wallet.POST("/send-erc20", walletHandler.SendERC20Token)
 		wallet.POST("/recover", walletHandler.RecoverWalletHandler)
-		wallet.GET("/qr", walletHandler.GenerateWalletQR)
+		wallet.GET("/qr", walletHandler.GetWalletQR)
 	}
 }

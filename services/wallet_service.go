@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
@@ -92,19 +93,19 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 	toAddress := common.HexToAddress(req.ToAddress)
 
 	// Convert amount from ETH to Wei
-	amountInWei := new(big.Int)
-	amountInWei.SetString(req.AmountInETH, 10)
-	amountInWei.Mul(amountInWei, big.NewInt(1e18))
+	amountInETH, _ := new(big.Float).SetString(req.AmountInETH)
+
+	amountInWei, _ := amountInETH.Mul(amountInETH, big.NewFloat(1e18)).Int(nil)
 
 	// Get nonce
-	nonce, err := s.client.PendingNonceAt(nil, fromAddress)
+	nonce, err := s.client.PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
 		utils.LogError(err, "Failed to get nonce", nil)
 		return "", fmt.Errorf("failed to get nonce: %w", err)
 	}
 
 	// Get gas price
-	gasPrice, err := s.client.SuggestGasPrice(nil)
+	gasPrice, err := s.client.SuggestGasPrice(context.Background())
 	if err != nil {
 		utils.LogError(err, "Failed to get gas price", nil)
 		return "", fmt.Errorf("failed to get gas price: %w", err)
@@ -114,7 +115,7 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 	tx := types.NewTransaction(nonce, toAddress, amountInWei, 21000, gasPrice, nil)
 
 	// Get chain ID
-	chainID, err := s.client.NetworkID(nil)
+	chainID, err := s.client.NetworkID(context.Background())
 	if err != nil {
 		utils.LogError(err, "Failed to get chain ID", nil)
 		return "", fmt.Errorf("failed to get chain ID: %w", err)
@@ -128,7 +129,7 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 	}
 
 	// Send transaction
-	err = s.client.SendTransaction(nil, signedTx)
+	err = s.client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		utils.LogError(err, "Failed to send transaction", nil)
 		return "", fmt.Errorf("failed to send transaction: %w", err)

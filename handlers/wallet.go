@@ -132,8 +132,8 @@ func (h *WalletHandler) RecoverWalletHandler(c *gin.Context) {
 	})
 }
 
-// GenerateWalletQR generates a QR code for the user's wallet address
-func (h *WalletHandler) GenerateWalletQR(c *gin.Context) {
+// GetWalletQR generates a QR code for the user's wallet address
+func (h *WalletHandler) GetWalletQR(c *gin.Context) {
 	// Get user ID from context (set by auth middleware)
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -142,13 +142,13 @@ func (h *WalletHandler) GenerateWalletQR(c *gin.Context) {
 		return
 	}
 
-	// Generate QR code
-	qrCode, err := h.qrService.GenerateWalletQR(userID.(string))
+	// Get stored QR code
+	qrCode, err := h.qrService.GetWalletQR(userID.(string))
 	if err != nil {
-		utils.LogError(err, "Failed to generate QR code", map[string]interface{}{
+		utils.LogError(err, "Failed to get QR code", map[string]interface{}{
 			"user_id": userID,
 		})
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to generate QR code"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get QR code"})
 		return
 	}
 
@@ -162,7 +162,7 @@ func (h *WalletHandler) GenerateWalletQR(c *gin.Context) {
 		return
 	}
 
-	utils.LogInfo("QR code generated successfully", map[string]interface{}{
+	utils.LogInfo("QR code retrieved successfully", map[string]interface{}{
 		"user_id": userID,
 		"wallet":  user.Wallet.Address,
 	})

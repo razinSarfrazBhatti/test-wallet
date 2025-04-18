@@ -13,12 +13,14 @@ import (
 )
 
 type UserService struct {
-	userRepo *repository.UserRepository
+	userRepo  *repository.UserRepository
+	qrService *QRService
 }
 
 func NewUserService() *UserService {
 	return &UserService{
-		userRepo: repository.NewUserRepository(),
+		userRepo:  repository.NewUserRepository(),
+		qrService: NewQRService(),
 	}
 }
 
@@ -78,6 +80,14 @@ func (s *UserService) RegisterUser(req *models.RegisterUserRequest) (*models.Use
 			Address:  walletResponse.Address,
 			Mnemonic: encryptedMnemonic,
 		},
+	}
+
+	// Generate and store QR code
+	if err := s.qrService.GenerateAndStoreQR(&newUser.Wallet); err != nil {
+		utils.LogError(err, "Failed to generate QR code", map[string]interface{}{
+			"user_id": newUser.Id,
+		})
+		return nil, fmt.Errorf("failed to generate QR code: %w", err)
 	}
 
 	// Save the user to the database
