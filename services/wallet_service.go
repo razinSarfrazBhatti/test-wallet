@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/gin-gonic/gin"
 )
 
 type WalletService struct {
@@ -52,9 +53,9 @@ func (s *WalletService) GetUserWallet(userID string) (*models.User, error) {
 }
 
 // GetBalance retrieves the ETH balance of a given address
-func (s *WalletService) GetBalance(address string) (string, error) {
+func (s *WalletService) GetBalance(c *gin.Context, address string) (string, error) {
 	addr := common.HexToAddress(address)
-	balance, err := s.client.BalanceAt(nil, addr, nil)
+	balance, err := s.client.BalanceAt(c, addr, nil)
 	if err != nil {
 		utils.LogError(err, "Failed to get balance", map[string]interface{}{
 			"address": address,

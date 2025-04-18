@@ -57,16 +57,8 @@ func LoadConfig() error {
 		Name:     getEnv("MYSQL_DB_NAME", "test_wallet"),
 	}
 
-	// Server configuration
-	readTimeout, _ := strconv.Atoi(getEnv("SERVER_READ_TIMEOUT", "10"))
-	writeTimeout, _ := strconv.Atoi(getEnv("SERVER_WRITE_TIMEOUT", "10"))
-	idleTimeout, _ := strconv.Atoi(getEnv("SERVER_IDLE_TIMEOUT", "120"))
-
 	AppConfig.ServerConfig = ServerConfig{
-		Port:         getEnv("SERVER_PORT", "8080"),
-		ReadTimeout:  time.Duration(readTimeout) * time.Second,
-		WriteTimeout: time.Duration(writeTimeout) * time.Second,
-		IdleTimeout:  time.Duration(idleTimeout) * time.Second,
+		Port: getEnv("SERVER_PORT", "8080"),
 	}
 
 	// JWT configuration

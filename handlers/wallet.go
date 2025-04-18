@@ -29,7 +29,7 @@ func NewWalletHandler() (*WalletHandler, error) {
 // GetBalance handles fetching the ETH balance of a given address
 func (h *WalletHandler) GetBalance(c *gin.Context) {
 	address := c.Param("address")
-	balance, err := h.walletService.GetBalance(address)
+	balance, err := h.walletService.GetBalance(c, address)
 	if err != nil {
 		utils.LogError(err, "Failed to get balance", map[string]interface{}{
 			"address": address,
