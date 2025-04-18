@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"test-wallet/models"
 	"test-wallet/services"
+	"test-wallet/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,20 +23,29 @@ func NewAuthHandler() *AuthHandler {
 func (h *AuthHandler) RegisterUser(c *gin.Context) {
 	var req models.RegisterUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		utils.LogError(err, "Invalid request payload", nil)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request payload"})
 		return
 	}
 
 	user, err := h.userService.RegisterUser(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.LogError(err, "Failed to register user", map[string]interface{}{
+			"phone_number": req.PhoneNumber,
+		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message":        "User registered successfully",
-		"user_id":        user.Id,
-		"wallet_address": user.Wallet.Address,
+	utils.LogInfo("User registered successfully", map[string]interface{}{
+		"user_id": user.Id,
+		"wallet":  user.Wallet.Address,
+	})
+
+	c.JSON(http.StatusCreated, models.RegisterResponse{
+		Message:       "User registered successfully",
+		UserID:        user.Id,
+		WalletAddress: user.Wallet.Address,
 	})
 }
 
@@ -43,24 +53,41 @@ func (h *AuthHandler) RegisterUser(c *gin.Context) {
 func (h *AuthHandler) LoginUser(c *gin.Context) {
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		utils.LogError(err, "Invalid request payload", nil)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request payload"})
 		return
 	}
 
 	token, user, err := h.userService.LoginUser(&req)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		utils.LogError(err, "Failed to login user", map[string]interface{}{
+			"phone_number": req.PhoneNumber,
+		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"user": gin.H{
-			"id":           user.Id,
-			"name":         user.Name,
-			"phone_number": user.PhoneNumber,
-			"wallet": gin.H{
-				"address": user.Wallet.Address,
+	utils.LogInfo("User logged in successfully", map[string]interface{}{
+		"user_id": user.Id,
+	})
+
+	c.JSON(http.StatusOK, models.LoginResponse{
+		Token: token,
+		User: struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			PhoneNumber string `json:"phone_number"`
+			Wallet      struct {
+				Address string `json:"address"`
+			} `json:"wallet"`
+		}{
+			ID:          user.Id,
+			Name:        user.Name,
+			PhoneNumber: user.PhoneNumber,
+			Wallet: struct {
+				Address string `json:"address"`
+			}{
+				Address: user.Wallet.Address,
 			},
 		},
 	})

@@ -2,87 +2,173 @@ package handlers
 
 import (
 	"net/http"
-
 	"test-wallet/models"
 	"test-wallet/services"
+	"test-wallet/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
-// GetBalance handles fetching the ETH balance of a given address.
-// The address is extracted from the URL parameter.
-func GetBalance(c *gin.Context) {
-	address := c.Param("address")
-	balance, err := services.GetBalance(address)
+type WalletHandler struct {
+	walletService *services.WalletService
+	qrService     *services.QRService
+}
+
+func NewWalletHandler() (*WalletHandler, error) {
+	walletService, err := services.NewWalletService()
 	if err != nil {
-		// Return 500 if balance retrieval fails
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get balance"})
+		return nil, err
+	}
+
+	return &WalletHandler{
+		walletService: walletService,
+		qrService:     services.NewQRService(),
+	}, nil
+}
+
+// GetBalance handles fetching the ETH balance of a given address
+func (h *WalletHandler) GetBalance(c *gin.Context) {
+	address := c.Param("address")
+	balance, err := h.walletService.GetBalance(address)
+	if err != nil {
+		utils.LogError(err, "Failed to get balance", map[string]interface{}{
+			"address": address,
+		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get balance"})
 		return
 	}
-	// Return the balance of the address
+
+	utils.LogInfo("Balance retrieved successfully", map[string]interface{}{
+		"address": address,
+		"balance": balance,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"balance": balance})
 }
 
-// SendETH handles sending ETH from one address to another.
-// It expects a JSON body with fields defined in the SendETHRequest model.
-func SendETH(c *gin.Context) {
+// SendETH handles sending ETH from one address to another
+func (h *WalletHandler) SendETH(c *gin.Context) {
 	var request models.SendETHRequest
-	// Bind the JSON body to the request struct
 	if err := c.ShouldBindJSON(&request); err != nil {
-		// Return 400 if the request is invalid
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		utils.LogError(err, "Invalid request payload", nil)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request payload"})
 		return
 	}
 
-	// Call the service to send ETH
-	txHash, err := services.SendETH(request)
+	txHash, err := h.walletService.SendETH(&request)
 	if err != nil {
-		// Return 500 if sending ETH fails
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send ETH"})
+		utils.LogError(err, "Failed to send ETH", map[string]interface{}{
+			"from":   request.FromAddress,
+			"to":     request.ToAddress,
+			"amount": request.AmountInETH,
+		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to send ETH"})
 		return
 	}
-	// Return the transaction hash
+
+	utils.LogInfo("ETH sent successfully", map[string]interface{}{
+		"from":    request.FromAddress,
+		"to":      request.ToAddress,
+		"amount":  request.AmountInETH,
+		"tx_hash": txHash,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"transaction_hash": txHash})
 }
 
-// SendERC20Token handles the HTTP request to send ERC20 tokens.
-func SendERC20Token(c *gin.Context) {
+// SendERC20Token handles sending ERC20 tokens
+func (h *WalletHandler) SendERC20Token(c *gin.Context) {
 	var request models.SendERC20Request
-
-	// Bind the incoming JSON payload to the request struct
 	if err := c.ShouldBindJSON(&request); err != nil {
-		// Return a 400 Bad Request response if the request is malformed
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		utils.LogError(err, "Invalid request payload", nil)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request payload"})
 		return
 	}
 
-	// Call the service layer to perform the token transfer
-	txHash, err := services.SendERC20Token(request)
+	txHash, err := h.walletService.SendERC20Token(&request)
 	if err != nil {
-		// Return a 500 Internal Server Error if the transfer fails
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send ERC20 token"})
+		utils.LogError(err, "Failed to send ERC20 token", map[string]interface{}{
+			"from":   request.FromAddress,
+			"to":     request.ToAddress,
+			"amount": request.AmountInUSD,
+		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to send ERC20 token"})
 		return
 	}
 
-	// Return the transaction hash in a 200 OK response
+	utils.LogInfo("ERC20 token sent successfully", map[string]interface{}{
+		"from":    request.FromAddress,
+		"to":      request.ToAddress,
+		"amount":  request.AmountInUSD,
+		"tx_hash": txHash,
+	})
+
 	c.JSON(http.StatusOK, gin.H{"transaction_hash": txHash})
 }
 
-func RecoverWalletHandler(c *gin.Context) {
+// RecoverWalletHandler handles wallet recovery
+func (h *WalletHandler) RecoverWalletHandler(c *gin.Context) {
 	var req models.RecoverWalletRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.LogError(err, "Invalid request payload", nil)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request payload"})
 		return
 	}
 
 	address, privateKey, err := services.RecoverWalletFromMnemonic(req.Mnemonic, req.DerivationPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.LogError(err, "Failed to recover wallet", nil)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to recover wallet"})
 		return
 	}
+
+	utils.LogInfo("Wallet recovered successfully", map[string]interface{}{
+		"address": address,
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"address":     address,
 		"private_key": privateKey,
+	})
+}
+
+// GenerateWalletQR generates a QR code for the user's wallet address
+func (h *WalletHandler) GenerateWalletQR(c *gin.Context) {
+	// Get user ID from context (set by auth middleware)
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.LogError(nil, "User not authenticated", nil)
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "user not authenticated"})
+		return
+	}
+
+	// Generate QR code
+	qrCode, err := h.qrService.GenerateWalletQR(userID.(string))
+	if err != nil {
+		utils.LogError(err, "Failed to generate QR code", map[string]interface{}{
+			"user_id": userID,
+		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to generate QR code"})
+		return
+	}
+
+	// Get user's wallet address
+	user, err := h.walletService.GetUserWallet(userID.(string))
+	if err != nil {
+		utils.LogError(err, "Failed to get wallet address", map[string]interface{}{
+			"user_id": userID,
+		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "failed to get wallet address"})
+		return
+	}
+
+	utils.LogInfo("QR code generated successfully", map[string]interface{}{
+		"user_id": userID,
+		"wallet":  user.Wallet.Address,
+	})
+
+	c.JSON(http.StatusOK, models.QRCodeResponse{
+		QRCode:  qrCode,
+		Address: user.Wallet.Address,
 	})
 }

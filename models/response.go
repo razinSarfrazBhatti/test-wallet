@@ -21,3 +21,8 @@ type RegisterResponse struct {
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
+
+type QRCodeResponse struct {
+	QRCode  string `json:"qr_code"`
+	Address string `json:"address"`
+}

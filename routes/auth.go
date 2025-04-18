@@ -13,6 +13,6 @@ func RegisterAuthRoutes(r *gin.Engine) {
 	{
 		auth.POST("/register", authHandler.RegisterUser)
 		auth.POST("/login", authHandler.LoginUser)
-		auth.POST("/reset-pin" /*handlers.ResetPassword*/)
+		auth.POST("/reset-pin" /*handlers.ResetPin*/)
 	}
 }
