@@ -5,16 +5,19 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"strings"
 	"test-wallet/config"
 	"test-wallet/models"
 	"test-wallet/repository"
 	"test-wallet/utils"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gin-gonic/gin"
+	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 )
 
 type WalletService struct {
@@ -32,6 +35,55 @@ func NewWalletService() (*WalletService, error) {
 		userRepo: repository.NewUserRepository(),
 		client:   client,
 	}, nil
+}
+
+func (s *WalletService) CreateWallet() (*models.CreateWalletResponse, error) {
+	// Generate a random mnemonic (12-word by default)
+	mnemonic, err := hdwallet.NewMnemonic(128)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the HD wallet from the mnemonic
+	wallet, err := hdwallet.NewFromMnemonic(mnemonic)
+	if err != nil {
+		return nil, err
+	}
+
+	// Derive a path (you can customize this for multiple accounts)
+	path := hdwallet.MustParseDerivationPath("m/44'/60'/0'/0/0")
+	account, err := wallet.Derive(path, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// 	1. m
+	//     The master node (root of the HD wallet tree).
+	// 2. 44' — Purpose
+	//     Follows BIP-44, a standard for multi-account hierarchical deterministic wallets.
+	//     The ' indicates it's a "hardened" key (more secure and isolated).
+	// 3. 60' — Coin Type
+	//     60 is the coin type for Ethereum, defined by SLIP-44.
+	// 4. 0' — Account
+	//     A unique account index — use 0 for the first wallet. You could use 1' or 2' for multiple user wallets.
+	// 5. 0 — Change
+	//     0 = external chain (for receiving).
+	//     1 = internal chain (used for change addresses, not typically used in Ethereum).
+	// 6. 0 — Address Index
+	//     Index of the address under the chain. You can increment this (0, 1, 2, …) to get more addresses.
+	// Get the private key
+	privateKey, err := wallet.PrivateKey(account)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the wallet info
+	return &models.CreateWalletResponse{
+		Mnemonic:   mnemonic,
+		Address:    account.Address.Hex(),
+		PrivateKey: fmt.Sprintf("%x", privateKey.D),
+	}, nil
+
 }
 
 // GetUserWallet retrieves a user's wallet information
@@ -149,77 +201,52 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 // SendERC20Token sends ERC20 tokens from one address to another
 func (s *WalletService) SendERC20Token(req *models.SendERC20Request) (string, error) {
 	// Convert private key from hex to ECDSA
+	// Convert the hex-encoded private key into an ECDSA private key object
 	privateKey, err := crypto.HexToECDSA(req.PrivateKey)
 	if err != nil {
-		utils.LogError(err, "Failed to convert private key", nil)
-		return "", fmt.Errorf("failed to convert private key: %w", err)
+		return "", err
 	}
 
-	// Get the public key and address
-	publicKey := privateKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return "", fmt.Errorf("failed to get public key")
-	}
+	// Derive the sender's Ethereum address from the private key
+	account := crypto.PubkeyToAddress(privateKey.PublicKey)
 
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+	// Convert the recipient's address from string to Ethereum address format
 	toAddress := common.HexToAddress(req.ToAddress)
-	tokenAddress := common.HexToAddress(config.AppConfig.EthConfig.USDCContractAddr)
 
-	// Convert amount from USD to token units (6 decimals for USDC)
-	amount := new(big.Int)
-	amount.SetString(req.AmountInUSD, 10)
-	amount.Mul(amount, big.NewInt(1e6))
+	// USDC token contract address on Ethereum (change if using different token or network)
+	usdcAddress := common.HexToAddress(config.AppConfig.EthConfig.USDCContractAddr)
 
-	// Get nonce
-	nonce, err := s.client.PendingNonceAt(nil, fromAddress)
+	// Convert the USD amount to USDC token amount in smallest units (USDC has 6 decimal places)
+	amountInUSD, _ := new(big.Float).SetString(req.AmountInUSD)
+	amountInWei := new(big.Int)
+	amountInWei, _ = amountInUSD.Mul(amountInUSD, big.NewFloat(1e6)).Int(amountInWei)
+
+	// Define the ERC20 ABI and pack the `transfer` method call with recipient and amount
+	erc20ABI, _ := abi.JSON(strings.NewReader(`[{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]`))
+	data, _ := erc20ABI.Pack("transfer", toAddress, amountInWei)
+
+	// Get the current nonce for the sender account
+	nonce, _ := s.client.PendingNonceAt(context.Background(), account)
+
+	// Suggest a gas price for the transaction
+	gasPrice, _ := s.client.SuggestGasPrice(context.Background())
+
+	// Set a gas limit for the token transfer transaction
+	gasLimit := uint64(100000) // typical for ERC20 token transfers
+
+	// Construct the raw transaction (value is 0 since we’re not sending ETH)
+	tx := types.NewTransaction(nonce, usdcAddress, big.NewInt(0), gasLimit, gasPrice, data)
+
+	// Get the chain ID (required for signing the transaction)
+	chainID, _ := s.client.NetworkID(context.Background())
+
+	// Sign the transaction using the sender's private key
+	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
+
+	// Send the signed transaction to the network
+	err = s.client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
-		utils.LogError(err, "Failed to get nonce", nil)
-		return "", fmt.Errorf("failed to get nonce: %w", err)
-	}
-
-	// Get gas price
-	gasPrice, err := s.client.SuggestGasPrice(nil)
-	if err != nil {
-		utils.LogError(err, "Failed to get gas price", nil)
-		return "", fmt.Errorf("failed to get gas price: %w", err)
-	}
-
-	// Create transfer function data
-	transferFnSignature := []byte("transfer(address,uint256)")
-	hash := crypto.Keccak256Hash(transferFnSignature)
-	methodID := hash[:4]
-
-	paddedAddress := common.LeftPadBytes(toAddress.Bytes(), 32)
-	paddedAmount := common.LeftPadBytes(amount.Bytes(), 32)
-
-	var data []byte
-	data = append(data, methodID...)
-	data = append(data, paddedAddress...)
-	data = append(data, paddedAmount...)
-
-	// Create transaction
-	tx := types.NewTransaction(nonce, tokenAddress, big.NewInt(0), 100000, gasPrice, data)
-
-	// Get chain ID
-	chainID, err := s.client.NetworkID(nil)
-	if err != nil {
-		utils.LogError(err, "Failed to get chain ID", nil)
-		return "", fmt.Errorf("failed to get chain ID: %w", err)
-	}
-
-	// Sign transaction
-	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
-	if err != nil {
-		utils.LogError(err, "Failed to sign transaction", nil)
-		return "", fmt.Errorf("failed to sign transaction: %w", err)
-	}
-
-	// Send transaction
-	err = s.client.SendTransaction(nil, signedTx)
-	if err != nil {
-		utils.LogError(err, "Failed to send transaction", nil)
-		return "", fmt.Errorf("failed to send transaction: %w", err)
+		return "", err
 	}
 
 	utils.LogInfo("ERC20 token sent successfully", map[string]interface{}{
@@ -230,4 +257,33 @@ func (s *WalletService) SendERC20Token(req *models.SendERC20Request) (string, er
 	})
 
 	return signedTx.Hash().Hex(), nil
+}
+
+// RecoverWalletFromMnemonic recovers a wallet using mnemonic and derivation path
+func RecoverWalletFromMnemonic(mnemonic, derivationPath string) (string, string, error) {
+	// Create a new wallet from the mnemonic
+	wallet, err := hdwallet.NewFromMnemonic(mnemonic)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create wallet: %w", err)
+	}
+
+	// Parse the derivation path (e.g. m/44'/60'/0'/0/0)
+	path := hdwallet.MustParseDerivationPath(derivationPath)
+
+	// Derive the account
+	account, err := wallet.Derive(path, false)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to derive account: %w", err)
+	}
+
+	// Get the private key
+	privKey, err := wallet.PrivateKey(account)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get private key: %w", err)
+	}
+
+	// Convert the private key to hex
+	privateKeyHex := fmt.Sprintf("0x%x", crypto.FromECDSA(privKey))
+
+	return account.Address.Hex(), privateKeyHex, nil
 }

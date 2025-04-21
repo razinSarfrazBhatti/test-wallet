@@ -7,7 +7,10 @@ import (
 )
 
 func RegisterAuthRoutes(r *gin.Engine) {
-	authHandler := handlers.NewAuthHandler()
+	authHandler, err := handlers.NewAuthHandler()
+	if err != nil {
+		panic(err) // Handle error appropriately in production
+	}
 
 	auth := r.Group("/auth")
 	{

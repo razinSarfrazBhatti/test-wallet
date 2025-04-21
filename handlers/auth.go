@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"test-wallet/models"
 	"test-wallet/services"
@@ -13,10 +14,14 @@ type AuthHandler struct {
 	userService *services.UserService
 }
 
-func NewAuthHandler() *AuthHandler {
-	return &AuthHandler{
-		userService: services.NewUserService(),
+func NewAuthHandler() (*AuthHandler, error) {
+	userService, err := services.NewUserService()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user service: %w", err)
 	}
+	return &AuthHandler{
+		userService: userService,
+	}, nil
 }
 
 // RegisterUser handles the registration of a new user

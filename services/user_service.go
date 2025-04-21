@@ -13,15 +13,22 @@ import (
 )
 
 type UserService struct {
-	userRepo  *repository.UserRepository
-	qrService *QRService
+	userRepo      *repository.UserRepository
+	qrService     *QRService
+	walletService *WalletService
 }
 
-func NewUserService() *UserService {
-	return &UserService{
-		userRepo:  repository.NewUserRepository(),
-		qrService: NewQRService(),
+func NewUserService() (*UserService, error) {
+	walletService, err := NewWalletService()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet service: %w", err)
 	}
+
+	return &UserService{
+		userRepo:      repository.NewUserRepository(),
+		qrService:     NewQRService(),
+		walletService: walletService,
+	}, nil
 }
 
 func (s *UserService) RegisterUser(req *models.RegisterUserRequest) (*models.User, error) {
@@ -55,7 +62,7 @@ func (s *UserService) RegisterUser(req *models.RegisterUserRequest) (*models.Use
 	}
 
 	// Create a new Ethereum wallet
-	walletResponse, err := CreateWallet()
+	walletResponse, err := s.walletService.CreateWallet()
 	if err != nil {
 		utils.LogError(err, "Failed to create wallet", nil)
 		return nil, errors.New("failed to create wallet")
