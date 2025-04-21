@@ -48,6 +48,14 @@ func (h *WalletHandler) GetBalance(c *gin.Context) {
 
 // SendETH handles sending ETH from one address to another
 func (h *WalletHandler) SendETH(c *gin.Context) {
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.LogError(nil, "User not authenticated", nil)
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "user not authenticated"})
+		return
+	}
+
 	var request models.SendETHRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		utils.LogError(err, "Invalid request payload", nil)
@@ -55,10 +63,9 @@ func (h *WalletHandler) SendETH(c *gin.Context) {
 		return
 	}
 
-	txHash, err := h.walletService.SendETH(&request)
+	txHash, err := h.walletService.SendETH(userID.(string), &request)
 	if err != nil {
 		utils.LogError(err, "Failed to send ETH", map[string]interface{}{
-			"from":   request.FromAddress,
 			"to":     request.ToAddress,
 			"amount": request.AmountInETH,
 		})
@@ -67,7 +74,6 @@ func (h *WalletHandler) SendETH(c *gin.Context) {
 	}
 
 	utils.LogInfo("ETH sent successfully", map[string]interface{}{
-		"from":    request.FromAddress,
 		"to":      request.ToAddress,
 		"amount":  request.AmountInETH,
 		"tx_hash": txHash,
@@ -78,6 +84,14 @@ func (h *WalletHandler) SendETH(c *gin.Context) {
 
 // SendERC20Token handles sending ERC20 tokens
 func (h *WalletHandler) SendERC20Token(c *gin.Context) {
+	// Get user ID from context
+	userID, exists := c.Get("user_id")
+	if !exists {
+		utils.LogError(nil, "User not authenticated", nil)
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "user not authenticated"})
+		return
+	}
+
 	var request models.SendERC20Request
 	if err := c.ShouldBindJSON(&request); err != nil {
 		utils.LogError(err, "Invalid request payload", nil)
@@ -85,10 +99,9 @@ func (h *WalletHandler) SendERC20Token(c *gin.Context) {
 		return
 	}
 
-	txHash, err := h.walletService.SendERC20Token(&request)
+	txHash, err := h.walletService.SendERC20Token(userID.(string), &request)
 	if err != nil {
 		utils.LogError(err, "Failed to send ERC20 token", map[string]interface{}{
-			"from":   request.FromAddress,
 			"to":     request.ToAddress,
 			"amount": request.AmountInUSD,
 		})
@@ -97,7 +110,6 @@ func (h *WalletHandler) SendERC20Token(c *gin.Context) {
 	}
 
 	utils.LogInfo("ERC20 token sent successfully", map[string]interface{}{
-		"from":    request.FromAddress,
 		"to":      request.ToAddress,
 		"amount":  request.AmountInUSD,
 		"tx_hash": txHash,

@@ -11,6 +11,7 @@ import (
 	"test-wallet/repository"
 	"test-wallet/utils"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -18,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gin-gonic/gin"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type WalletService struct {
@@ -127,16 +129,48 @@ func (s *WalletService) GetBalance(c *gin.Context, address string) (string, erro
 }
 
 // SendETH sends ETH from one address to another
-func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
+func (s *WalletService) SendETH(userID string, req *models.SendETHRequest) (string, error) {
+	// Get user's wallet
+	user, err := s.userRepo.FindUserByID(userID)
+	if err != nil {
+		utils.LogError(err, "Failed to get user wallet", map[string]interface{}{
+			"user_id": userID,
+		})
+		return "", fmt.Errorf("failed to get user wallet: %w", err)
+	}
+
+	// Verify PIN
+	err = bcrypt.CompareHashAndPassword([]byte(user.Pin), []byte(req.Pin+user.Salt))
+	if err != nil {
+		utils.LogError(err, "Invalid PIN", map[string]interface{}{
+			"user_id": userID,
+		})
+		return "", fmt.Errorf("invalid PIN")
+	}
+
+	// Decrypt the mnemonic using the provided PIN
+	mnemonic, err := Decrypt(req.Pin, user.Wallet.Mnemonic)
+	if err != nil {
+		utils.LogError(err, "Failed to decrypt mnemonic", nil)
+		return "", fmt.Errorf("failed to decrypt mnemonic: %w", err)
+	}
+
+	// Recover wallet from mnemonic
+	address, privateKey, err := RecoverWalletFromMnemonic(mnemonic, "m/44'/60'/0'/0/0")
+	if err != nil {
+		utils.LogError(err, "Failed to recover wallet", nil)
+		return "", fmt.Errorf("failed to recover wallet: %w", err)
+	}
+
 	// Convert private key from hex to ECDSA
-	privateKey, err := crypto.HexToECDSA(req.PrivateKey)
+	privKey, err := crypto.HexToECDSA(privateKey)
 	if err != nil {
 		utils.LogError(err, "Failed to convert private key", nil)
 		return "", fmt.Errorf("failed to convert private key: %w", err)
 	}
 
 	// Get the public key and address
-	publicKey := privateKey.Public()
+	publicKey := privKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return "", fmt.Errorf("failed to get public key")
@@ -147,7 +181,6 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 
 	// Convert amount from ETH to Wei
 	amountInETH, _ := new(big.Float).SetString(req.AmountInETH)
-
 	amountInWei, _ := amountInETH.Mul(amountInETH, big.NewFloat(1e18)).Int(nil)
 
 	// Get nonce
@@ -164,8 +197,26 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 		return "", fmt.Errorf("failed to get gas price: %w", err)
 	}
 
+	// Apply a multiplier to the gas price (for faster transactions)
+	gasPrice = new(big.Int).Mul(gasPrice, big.NewInt(120))
+	gasPrice = new(big.Int).Div(gasPrice, big.NewInt(100))
+
+	msg := ethereum.CallMsg{
+		From:     fromAddress,
+		To:       &toAddress,
+		GasPrice: gasPrice,
+		Value:    amountInWei,
+		Data:     nil,
+	}
+
+	gasLimit, err := s.client.EstimateGas(context.Background(), msg)
+	if err != nil {
+		utils.LogError(err, "Failed to estimate gas", nil)
+		return "", fmt.Errorf("failed to estimate gas: %w", err)
+	}
+
 	// Create transaction
-	tx := types.NewTransaction(nonce, toAddress, amountInWei, 21000, gasPrice, nil)
+	tx := types.NewTransaction(nonce, toAddress, amountInWei, gasLimit, gasPrice, nil)
 
 	// Get chain ID
 	chainID, err := s.client.NetworkID(context.Background())
@@ -175,7 +226,7 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 	}
 
 	// Sign transaction
-	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
+	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privKey)
 	if err != nil {
 		utils.LogError(err, "Failed to sign transaction", nil)
 		return "", fmt.Errorf("failed to sign transaction: %w", err)
@@ -189,7 +240,7 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 	}
 
 	utils.LogInfo("ETH sent successfully", map[string]interface{}{
-		"from":    req.FromAddress,
+		"from":    address,
 		"to":      req.ToAddress,
 		"amount":  req.AmountInETH,
 		"tx_hash": signedTx.Hash().Hex(),
@@ -199,18 +250,54 @@ func (s *WalletService) SendETH(req *models.SendETHRequest) (string, error) {
 }
 
 // SendERC20Token sends ERC20 tokens from one address to another
-func (s *WalletService) SendERC20Token(req *models.SendERC20Request) (string, error) {
-	// Convert private key from hex to ECDSA
-	// Convert the hex-encoded private key into an ECDSA private key object
-	privateKey, err := crypto.HexToECDSA(req.PrivateKey)
+func (s *WalletService) SendERC20Token(userID string, req *models.SendERC20Request) (string, error) {
+	// Get user's wallet
+	user, err := s.userRepo.FindUserByID(userID)
 	if err != nil {
-		return "", err
+		utils.LogError(err, "Failed to get user wallet", map[string]interface{}{
+			"user_id": userID,
+		})
+		return "", fmt.Errorf("failed to get user wallet: %w", err)
 	}
 
-	// Derive the sender's Ethereum address from the private key
-	account := crypto.PubkeyToAddress(privateKey.PublicKey)
+	// Verify PIN
+	err = bcrypt.CompareHashAndPassword([]byte(user.Pin), []byte(req.Pin+user.Salt))
+	if err != nil {
+		utils.LogError(err, "Invalid PIN", map[string]interface{}{
+			"user_id": userID,
+		})
+		return "", fmt.Errorf("invalid PIN")
+	}
 
-	// Convert the recipient's address from string to Ethereum address format
+	// Decrypt the mnemonic using the provided PIN
+	mnemonic, err := Decrypt(req.Pin, user.Wallet.Mnemonic)
+	if err != nil {
+		utils.LogError(err, "Failed to decrypt mnemonic", nil)
+		return "", fmt.Errorf("failed to decrypt mnemonic: %w", err)
+	}
+
+	// Recover wallet from mnemonic
+	address, privateKey, err := RecoverWalletFromMnemonic(mnemonic, "m/44'/60'/0'/0/0")
+	if err != nil {
+		utils.LogError(err, "Failed to recover wallet", nil)
+		return "", fmt.Errorf("failed to recover wallet: %w", err)
+	}
+
+	// Convert private key from hex to ECDSA
+	privKey, err := crypto.HexToECDSA(privateKey)
+	if err != nil {
+		utils.LogError(err, "Failed to convert private key", nil)
+		return "", fmt.Errorf("failed to convert private key: %w", err)
+	}
+
+	// Get the public key and address
+	publicKey := privKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return "", fmt.Errorf("failed to get public key")
+	}
+
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 	toAddress := common.HexToAddress(req.ToAddress)
 
 	// USDC token contract address on Ethereum (change if using different token or network)
@@ -226,22 +313,26 @@ func (s *WalletService) SendERC20Token(req *models.SendERC20Request) (string, er
 	data, _ := erc20ABI.Pack("transfer", toAddress, amountInWei)
 
 	// Get the current nonce for the sender account
-	nonce, _ := s.client.PendingNonceAt(context.Background(), account)
+	nonce, _ := s.client.PendingNonceAt(context.Background(), fromAddress)
 
 	// Suggest a gas price for the transaction
 	gasPrice, _ := s.client.SuggestGasPrice(context.Background())
 
+	// Apply a multiplier to the gas price (for faster transactions)
+	gasPrice = new(big.Int).Mul(gasPrice, big.NewInt(120))
+	gasPrice = new(big.Int).Div(gasPrice, big.NewInt(100))
+
 	// Set a gas limit for the token transfer transaction
 	gasLimit := uint64(100000) // typical for ERC20 token transfers
 
-	// Construct the raw transaction (value is 0 since we’re not sending ETH)
+	// Construct the raw transaction (value is 0 since we're not sending ETH)
 	tx := types.NewTransaction(nonce, usdcAddress, big.NewInt(0), gasLimit, gasPrice, data)
 
 	// Get the chain ID (required for signing the transaction)
 	chainID, _ := s.client.NetworkID(context.Background())
 
 	// Sign the transaction using the sender's private key
-	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
+	signedTx, _ := types.SignTx(tx, types.NewEIP155Signer(chainID), privKey)
 
 	// Send the signed transaction to the network
 	err = s.client.SendTransaction(context.Background(), signedTx)
@@ -250,7 +341,7 @@ func (s *WalletService) SendERC20Token(req *models.SendERC20Request) (string, er
 	}
 
 	utils.LogInfo("ERC20 token sent successfully", map[string]interface{}{
-		"from":    req.FromAddress,
+		"from":    address,
 		"to":      req.ToAddress,
 		"amount":  req.AmountInUSD,
 		"tx_hash": signedTx.Hash().Hex(),
@@ -282,8 +373,8 @@ func RecoverWalletFromMnemonic(mnemonic, derivationPath string) (string, string,
 		return "", "", fmt.Errorf("failed to get private key: %w", err)
 	}
 
-	// Convert the private key to hex
-	privateKeyHex := fmt.Sprintf("0x%x", crypto.FromECDSA(privKey))
+	// Convert the private key to hex without the '0x' prefix
+	privateKeyHex := fmt.Sprintf("%x", crypto.FromECDSA(privKey))
 
 	return account.Address.Hex(), privateKeyHex, nil
 }
